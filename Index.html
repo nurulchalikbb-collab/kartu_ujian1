@@ -1,0 +1,1442 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Generator Kartu Ujian V3 - Madrasah & Sekolah</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Inter & Plus Jakarta Sans -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- SheetJS (XLSX) untuk Baca & Export Template Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <!-- JSZip untuk Ekstrak Foto Massal via ZIP -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- html2pdf.js untuk Download PDF Langsung Presisi A4/F4 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f1f5f9;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #e2e8f0;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        /* Ukuran Kartu Presisi Standar Plastik ID Card / Nametag: 10.5cm x 7.5cm */
+        .exam-card {
+            width: 105mm;
+            height: 75mm;
+            background: #ffffff;
+            border: 1.5px solid #1e293b;
+            box-sizing: border-box;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 3.5mm 4mm;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+
+        /* Efek Stempel Basah di atas TTD */
+        .stamp-multiply {
+            mix-blend-mode: multiply;
+        }
+
+        /* Pratinjau Lembar Kertas di Layar */
+        .paper-sheet {
+            background: white;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            margin: 0 auto 24px auto;
+            padding: 8mm;
+            display: grid;
+            grid-template-columns: repeat(2, 105mm);
+            gap: 3mm;
+            justify-content: center;
+            align-content: start;
+        }
+
+        .paper-a4 {
+            width: 210mm;
+            min-height: 297mm;
+        }
+
+        .paper-f4 {
+            width: 215mm;
+            min-height: 330mm;
+        }
+
+        /* Pengaturan Khusus Saat Dicetak (CTRL+P / Tombol Cetak) */
+        @media print {
+            @page {
+                margin: 5mm;
+            }
+            body {
+                background: #ffffff !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+            #preview-container {
+                width: 100% !important;
+                height: auto !important;
+                overflow: visible !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                background: transparent !important;
+            }
+            .paper-sheet {
+                box-shadow: none !important;
+                margin: 0 auto !important;
+                padding: 2mm 0 !important;
+                width: 100% !important;
+                min-height: auto !important;
+                page-break-after: always;
+                break-after: page;
+            }
+            .paper-sheet:last-child {
+                page-break-after: auto;
+                break-after: auto;
+            }
+            .exam-card {
+                border: 1.5px solid #000000 !important;
+            }
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased">
+
+    <!-- Toast Notification Container (Pengganti alert) -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 no-print"></div>
+
+    <!-- Modal Tambah/Edit Siswa Manual -->
+    <div id="student-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 hidden flex items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div class="bg-emerald-700 text-white px-5 py-4 flex justify-between items-center">
+                <h3 class="font-bold text-base flex items-center gap-2">
+                    <i class="fa-solid fa-user-plus"></i> <span id="modal-title">Tambah Peserta Manual</span>
+                </h3>
+                <button onclick="closeStudentModal()" class="text-emerald-100 hover:text-white transition">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <form id="student-form" onsubmit="saveManualStudent(event)" class="p-5 space-y-3 text-sm">
+                <input type="hidden" id="edit-index" value="-1">
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Nomor Peserta Ujian *</label>
+                    <input type="text" id="m-nopes" required placeholder="Contoh: 01-001-001-8" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">NISN (Untuk Cocok Foto) *</label>
+                        <input type="text" id="m-nisn" required placeholder="Contoh: 0081234567" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">NIS / Nomor Induk</label>
+                        <input type="text" id="m-nis" placeholder="Contoh: 2024001" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    </div>
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Nama Lengkap Peserta *</label>
+                    <input type="text" id="m-nama" required placeholder="Contoh: AHMAD FAUZAN" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Tempat, Tanggal Lahir</label>
+                    <input type="text" id="m-ttl" placeholder="Contoh: Jakarta, 12 Mei 2010" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Kelas / Rombel *</label>
+                        <input type="text" id="m-kelas" required placeholder="Contoh: IX-A" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Ruang Ujian *</label>
+                        <input type="text" id="m-ruang" required placeholder="Contoh: Ruang 01" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    </div>
+                </div>
+                <div class="pt-3 flex justify-end gap-2 border-t border-slate-100">
+                    <button type="button" onclick="closeStudentModal()" class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition">Batal</button>
+                    <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm transition">Simpan Data</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Top Navbar -->
+    <header class="bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 text-white shadow-md sticky top-0 z-30 no-print">
+        <div class="max-w-full mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center border border-white/20 shadow-inner">
+                    <i class="fa-solid fa-id-card-clip text-xl text-amber-300"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="font-extrabold text-base sm:text-lg tracking-tight">Generator Kartu Ujian</h1>
+                        <span class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-400 text-slate-900 rounded-full">V3 Pro</span>
+                    </div>
+                    <p class="text-xs text-emerald-100 flex items-center gap-1.5">
+                        <i class="fa-solid fa-shield-halved text-emerald-300"></i> 100% Client-Side • Presisi 10,5 x 7,5 cm • Ekstrak ZIP Massal
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <!-- Pilihan Ukuran Kertas -->
+                <div class="flex items-center bg-emerald-900/60 rounded-xl p-1 border border-emerald-600/50 text-xs">
+                    <button onclick="setPaperSize('A4')" id="btn-paper-a4" class="px-3 py-1.5 rounded-lg font-bold bg-white text-emerald-900 shadow-sm transition">
+                        A4 (6 Kartu)
+                    </button>
+                    <button onclick="setPaperSize('F4')" id="btn-paper-f4" class="px-3 py-1.5 rounded-lg font-semibold text-emerald-100 hover:text-white transition">
+                        F4 (8 Kartu)
+                    </button>
+                </div>
+
+                <!-- Tombol Simpan Pengaturan & Data -->
+                <div class="flex items-center gap-1.5">
+                    <button onclick="saveProjectToLocal()" class="px-3.5 py-2 rounded-xl bg-emerald-950/70 hover:bg-emerald-950 text-white border border-emerald-500/40 font-bold text-sm shadow-sm flex items-center gap-2 transition transform active:scale-95" title="Simpan pengaturan & data peserta ke browser">
+                        <i class="fa-solid fa-floppy-disk text-emerald-300"></i>
+                        <span>Simpan</span>
+                    </button>
+                    <button onclick="exportProjectFile()" class="p-2 rounded-xl bg-emerald-950/50 hover:bg-emerald-950 text-emerald-100 border border-emerald-500/30 text-sm transition" title="Unduh File Cadangan (.json)">
+                        <i class="fa-solid fa-download"></i>
+                    </button>
+                    <label class="p-2 rounded-xl bg-emerald-950/50 hover:bg-emerald-950 text-emerald-100 border border-emerald-500/30 text-sm cursor-pointer transition" title="Buka File Cadangan (.json)">
+                        <i class="fa-solid fa-folder-open"></i>
+                        <input type="file" accept=".json" class="hidden" onchange="importProjectFile(event)">
+                    </label>
+                </div>
+
+                <!-- Tombol Download PDF Langsung -->
+                <button onclick="downloadPDF()" id="btn-download-pdf" class="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm shadow-lg shadow-rose-950/20 flex items-center gap-2 transition transform active:scale-95">
+                    <i class="fa-solid fa-file-pdf"></i>
+                    <span>Download PDF</span>
+                </button>
+
+                <!-- Tombol Cetak -->
+                <button onclick="printCards()" class="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-sm shadow-lg shadow-amber-950/20 flex items-center gap-2 transition transform active:scale-95">
+                    <i class="fa-solid fa-print"></i>
+                    <span>Cetak (<span id="print-paper-label">A4</span>)</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace Layout -->
+    <div class="flex flex-col lg:flex-row min-h-[calc(100vh-64px)]">
+        
+        <!-- LEFT PANEL: Sidebar Pengaturan & Import Data -->
+        <aside class="w-full lg:w-[410px] xl:w-[440px] bg-white border-r border-slate-200 flex-shrink-0 flex flex-col no-print">
+            
+            <!-- Tab Navigation -->
+            <div class="grid grid-cols-3 border-b border-slate-200 bg-slate-50 text-xs font-bold">
+                <button onclick="switchTab('data')" id="tab-btn-data" class="py-3.5 px-2 text-emerald-700 border-b-2 border-emerald-600 bg-white flex items-center justify-center gap-1.5 transition">
+                    <i class="fa-solid fa-file-excel"></i> 1. Data & Foto
+                </button>
+                <button onclick="switchTab('kop')" id="tab-btn-kop" class="py-3.5 px-2 text-slate-500 hover:text-slate-800 border-b-2 border-transparent flex items-center justify-center gap-1.5 transition">
+                    <i class="fa-solid fa-building-columns"></i> 2. Kop & Tema
+                </button>
+                <button onclick="switchTab('ttd')" id="tab-btn-ttd" class="py-3.5 px-2 text-slate-500 hover:text-slate-800 border-b-2 border-transparent flex items-center justify-center gap-1.5 transition">
+                    <i class="fa-solid fa-signature"></i> 3. TTD & Stempel
+                </button>
+            </div>
+
+            <!-- Tab Content Container -->
+            <div class="p-4 sm:p-5 overflow-y-auto flex-1 space-y-5">
+
+                <!-- ================= TAB 1: DATA & FOTO MASSAL ================= -->
+                <div id="tab-panel-data" class="space-y-4">
+                    
+                    <!-- Step 1: Excel -->
+                    <div class="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-extrabold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                                <span class="w-5 h-5 rounded-full bg-emerald-700 text-white inline-flex items-center justify-center text-[11px]">1</span>
+                                Import Data Peserta (.xlsx)
+                            </span>
+                            <button onclick="downloadExcelTemplate()" class="text-xs font-bold text-emerald-700 hover:text-emerald-900 underline flex items-center gap-1">
+                                <i class="fa-solid fa-download"></i> Unduh Template
+                            </button>
+                        </div>
+                        <p class="text-xs text-slate-600 leading-relaxed">
+                            Gunakan template Excel bawaan agar kolom <b>No Peserta, NISN, Nama, TTL, Kelas, Ruang</b> terbaca otomatis.
+                        </p>
+                        <label class="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-emerald-400 rounded-xl bg-white hover:bg-emerald-50/50 cursor-pointer transition group">
+                            <div class="flex flex-col items-center justify-center pt-2 pb-2 text-center px-3">
+                                <i class="fa-solid fa-file-excel text-2xl text-emerald-600 group-hover:scale-110 transition mb-1"></i>
+                                <p class="text-xs font-bold text-slate-700">Klik untuk Upload File Excel (.xlsx / .xls)</p>
+                                <p id="excel-status" class="text-[11px] text-slate-400 mt-0.5">Menggunakan 4 data contoh bawaan</p>
+                            </div>
+                            <input type="file" id="upload-excel" accept=".xlsx, .xls, .csv" class="hidden" onchange="handleExcelUpload(event)">
+                        </label>
+                    </div>
+
+                    <!-- Step 2: Foto Massal ZIP -->
+                    <div class="bg-blue-50/70 border border-blue-200 rounded-2xl p-4 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-extrabold uppercase tracking-wider text-blue-800 flex items-center gap-1.5">
+                                <span class="w-5 h-5 rounded-full bg-blue-700 text-white inline-flex items-center justify-center text-[11px]">2</span>
+                                Ekstrak Foto Massal (.zip)
+                            </span>
+                            <span id="photo-match-badge" class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">0 Foto Terpasang</span>
+                        </div>
+                        <p class="text-xs text-slate-600 leading-relaxed">
+                            Ubah nama file foto sesuai <b>NISN</b> (misal: <code class="bg-white px-1 py-0.5 rounded border text-blue-700">0081234567.jpg</code>), lalu kompres menjadi satu file <b>.ZIP</b>.
+                        </p>
+                        <label class="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-blue-400 rounded-xl bg-white hover:bg-blue-50/50 cursor-pointer transition group">
+                            <div class="flex flex-col items-center justify-center pt-2 pb-2 text-center px-3">
+                                <i class="fa-solid fa-file-zipper text-2xl text-blue-600 group-hover:scale-110 transition mb-1"></i>
+                                <p class="text-xs font-bold text-slate-700">Klik untuk Upload Pasfoto Massal (.zip)</p>
+                                <p id="zip-status" class="text-[11px] text-slate-400 mt-0.5">Mendukung format JPG, JPEG, PNG di dalam ZIP</p>
+                            </div>
+                            <input type="file" id="upload-zip" accept=".zip" class="hidden" onchange="handleZipUpload(event)">
+                        </label>
+                    </div>
+
+                    <!-- Step 3: Daftar & Filter Peserta -->
+                    <div class="border border-slate-200 rounded-2xl overflow-hidden bg-white">
+                        <div class="bg-slate-50 px-3.5 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2">
+                            <span class="text-xs font-extrabold text-slate-700">
+                                Daftar Peserta (<span id="total-students-count">0</span>)
+                            </span>
+                            <div class="flex items-center gap-1.5">
+                                <button onclick="openStudentModal()" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 transition">
+                                    <i class="fa-solid fa-plus"></i> Manual
+                                </button>
+                                <button onclick="clearAllStudents()" class="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 text-[11px] font-bold transition" title="Kosongkan Data">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Filter Kelas & Pencarian -->
+                        <div class="p-2.5 bg-slate-50/50 border-b border-slate-100 grid grid-cols-2 gap-2">
+                            <input type="text" id="search-student" oninput="renderAll()" placeholder="Cari nama / NISN..." class="text-xs rounded-lg border border-slate-300 px-2.5 py-1.5 focus:outline-none focus:border-emerald-500">
+                            <select id="filter-kelas" onchange="renderAll()" class="text-xs rounded-lg border border-slate-300 px-2 py-1.5 bg-white focus:outline-none focus:border-emerald-500">
+                                <option value="ALL">Semua Kelas</option>
+                            </select>
+                        </div>
+
+                        <!-- List Peserta Mini -->
+                        <div id="student-list-mini" class="max-h-60 overflow-y-auto divide-y divide-slate-100 text-xs">
+                            <!-- Diisi via JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ================= TAB 2: KOP SURAT & TEMA ================= -->
+                <div id="tab-panel-kop" class="space-y-4 hidden">
+                    
+                    <!-- Dual Logo Upload -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="border border-slate-200 rounded-xl p-3 bg-slate-50 text-center space-y-2">
+                            <p class="text-[11px] font-bold text-slate-700">Logo Kiri (Kemenag/Dinas)</p>
+                            <div class="w-14 h-14 mx-auto bg-white rounded-lg border border-slate-200 flex items-center justify-center overflow-hidden p-1">
+                                <img id="preview-logo-left" src="" alt="Logo Kiri" class="max-h-full max-w-full object-contain">
+                            </div>
+                            <div class="flex justify-center gap-1">
+                                <label class="px-2.5 py-1 bg-emerald-600 text-white rounded-md text-[11px] font-semibold cursor-pointer hover:bg-emerald-700">
+                                    Pilih <input type="file" accept="image/*" class="hidden" onchange="handleImageSetting(event, 'logoLeft')">
+                                </label>
+                                <button onclick="removeImageSetting('logoLeft')" class="px-2 py-1 bg-slate-200 text-slate-700 rounded-md text-[11px] hover:bg-slate-300">Hapus</button>
+                            </div>
+                        </div>
+
+                        <div class="border border-slate-200 rounded-xl p-3 bg-slate-50 text-center space-y-2">
+                            <p class="text-[11px] font-bold text-slate-700">Logo Kanan (Madrasah/Sekolah)</p>
+                            <div class="w-14 h-14 mx-auto bg-white rounded-lg border border-slate-200 flex items-center justify-center overflow-hidden p-1">
+                                <img id="preview-logo-right" src="" alt="Logo Kanan" class="max-h-full max-w-full object-contain">
+                            </div>
+                            <div class="flex justify-center gap-1">
+                                <label class="px-2.5 py-1 bg-emerald-600 text-white rounded-md text-[11px] font-semibold cursor-pointer hover:bg-emerald-700">
+                                    Pilih <input type="file" accept="image/*" class="hidden" onchange="handleImageSetting(event, 'logoRight')">
+                                </label>
+                                <button onclick="removeImageSetting('logoRight')" class="px-2 py-1 bg-slate-200 text-slate-700 rounded-md text-[11px] hover:bg-slate-300">Hapus</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Identitas Kop -->
+                    <div class="space-y-3 text-xs">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Baris 1 (Instansi / Yayasan)</label>
+                            <input type="text" id="cfg-instansi" oninput="updateConfig()" value="KEMENTERIAN AGAMA REPUBLIK INDONESIA" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Baris 2 (Nama Madrasah / Sekolah)</label>
+                            <input type="text" id="cfg-sekolah" oninput="updateConfig()" value="MADRASAH TSANAWIYAH NEGERI 1 NUSANTARA" class="w-full rounded-lg border border-slate-300 px-3 py-2 font-semibold focus:border-emerald-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Baris 3 (Alamat & Kontak)</label>
+                            <input type="text" id="cfg-alamat" oninput="updateConfig()" value="Jl. Pendidikan Raya No. 45, Kota Nusantara • Telp. (021) 555-0192" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2.5">
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1">Judul Kartu Ujian</label>
+                                <input type="text" id="cfg-judul" oninput="updateConfig()" value="KARTU PESERTA ASESMEN MADRASAH" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1">Tahun Pelajaran</label>
+                                <input type="text" id="cfg-tapel" oninput="updateConfig()" value="TAHUN PELAJARAN 2025/2026" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Warna Aksen Kartu -->
+                    <div class="border-t border-slate-200 pt-3 space-y-2">
+                        <label class="block text-xs font-bold text-slate-700">Warna Tema Pita Judul Kartu</label>
+                        <div class="flex items-center gap-2">
+                            <button onclick="setAccentColor('#065f46')" class="w-7 h-7 rounded-full bg-emerald-800 ring-2 ring-offset-2 ring-emerald-800"></button>
+                            <button onclick="setAccentColor('#1e3a8a')" class="w-7 h-7 rounded-full bg-blue-900 hover:scale-110 transition"></button>
+                            <button onclick="setAccentColor('#7f1d1d')" class="w-7 h-7 rounded-full bg-red-900 hover:scale-110 transition"></button>
+                            <button onclick="setAccentColor('#1e293b')" class="w-7 h-7 rounded-full bg-slate-800 hover:scale-110 transition"></button>
+                            <button onclick="setAccentColor('#581c87')" class="w-7 h-7 rounded-full bg-purple-900 hover:scale-110 transition"></button>
+                            <input type="color" id="cfg-color" value="#065f46" onchange="setAccentColor(this.value)" class="w-8 h-8 rounded cursor-pointer border-0">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ================= TAB 3: TANDA TANGAN & STEMPEL ================= -->
+                <div id="tab-panel-ttd" class="space-y-4 hidden text-xs">
+                    <div class="grid grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Tempat & Tanggal Cetak</label>
+                            <input type="text" id="cfg-tgl" oninput="updateConfig()" value="Nusantara, 12 Mei 2026" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Jabatan Penandatangan</label>
+                            <input type="text" id="cfg-jabatan" oninput="updateConfig()" value="Kepala Madrasah," class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Nama Kepala Madrasah / Ketua Panitia</label>
+                        <input type="text" id="cfg-kamad" oninput="updateConfig()" value="Dr. H. Ahmad Muzakki, M.Pd.I" class="w-full rounded-lg border border-slate-300 px-3 py-2 font-semibold focus:border-emerald-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">NIP / NUPTK</label>
+                        <input type="text" id="cfg-nip" oninput="updateConfig()" value="NIP. 19780415 200501 1 004" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none">
+                    </div>
+
+                    <!-- Upload Scan TTD & Stempel -->
+                    <div class="grid grid-cols-2 gap-3 pt-1">
+                        <div class="border border-slate-200 rounded-xl p-3 bg-slate-50 text-center space-y-2">
+                            <p class="text-[11px] font-bold text-slate-700">Scan TTD (PNG Transparan)</p>
+                            <div class="h-14 bg-white rounded-lg border border-slate-200 flex items-center justify-center overflow-hidden p-1">
+                                <img id="preview-ttd" src="" alt="TTD" class="max-h-full max-w-full object-contain">
+                            </div>
+                            <div class="flex justify-center gap-1">
+                                <label class="px-2.5 py-1 bg-emerald-600 text-white rounded-md text-[11px] font-semibold cursor-pointer hover:bg-emerald-700">
+                                    Upload <input type="file" accept="image/*" class="hidden" onchange="handleImageSetting(event, 'ttdImg')">
+                                </label>
+                                <button onclick="removeImageSetting('ttdImg')" class="px-2 py-1 bg-slate-200 text-slate-700 rounded-md text-[11px] hover:bg-slate-300">Hapus</button>
+                            </div>
+                        </div>
+
+                        <div class="border border-slate-200 rounded-xl p-3 bg-slate-50 text-center space-y-2">
+                            <p class="text-[11px] font-bold text-slate-700">Scan Stempel (PNG)</p>
+                            <div class="h-14 bg-white rounded-lg border border-slate-200 flex items-center justify-center overflow-hidden p-1">
+                                <img id="preview-stempel" src="" alt="Stempel" class="max-h-full max-w-full object-contain">
+                            </div>
+                            <div class="flex justify-center gap-1">
+                                <label class="px-2.5 py-1 bg-emerald-600 text-white rounded-md text-[11px] font-semibold cursor-pointer hover:bg-emerald-700">
+                                    Upload <input type="file" accept="image/*" class="hidden" onchange="handleImageSetting(event, 'stempelImg')">
+                                </label>
+                                <button onclick="removeImageSetting('stempelImg')" class="px-2 py-1 bg-slate-200 text-slate-700 rounded-md text-[11px] hover:bg-slate-300">Hapus</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Catatan Kaki Kartu -->
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Catatan Kaki (Pojok Kiri Bawah Kartu)</label>
+                        <textarea id="cfg-catatan" oninput="updateConfig()" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none">• Kartu wajib dibawa selama ujian berlangsung.
+• Peserta hadir 15 menit sebelum ujian dimulai.</textarea>
+                    </div>
+
+                    <!-- Tombol Simpan di Bawah Form Pengaturan -->
+                    <div class="pt-2">
+                        <button onclick="saveProjectToLocal()" class="w-full py-2.5 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition">
+                            <i class="fa-solid fa-floppy-disk"></i> Simpan Semua Pengaturan & Data
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Panduan Singkat Cetak -->
+            <div class="p-3.5 bg-amber-50 border-t border-amber-200 text-[11px] text-amber-900 space-y-1">
+                <p class="font-bold flex items-center gap-1.5"><i class="fa-solid fa-lightbulb text-amber-600"></i> Tips Pengaturan Cetak Browser:</p>
+                <p>Pilih ukuran kertas <b>A4 / F4</b>, Margin <b>Default/Minimum</b>, dan <b>centang "Background graphics"</b> agar warna pita & stempel tercetak sempurna.</p>
+            </div>
+        </aside>
+
+        <!-- RIGHT PANEL: Live Preview Lembar Cetak -->
+        <main id="preview-container" class="flex-1 bg-slate-200/80 p-4 sm:p-8 overflow-auto">
+            
+            <!-- Info Bar di atas Kertas -->
+            <div class="max-w-[215mm] mx-auto mb-4 flex flex-wrap items-center justify-between gap-2 bg-white/90 backdrop-blur px-4 py-2.5 rounded-xl border border-slate-300/80 shadow-sm text-xs no-print">
+                <div class="flex items-center gap-2 text-slate-700">
+                    <i class="fa-solid fa-eye text-emerald-600"></i>
+                    <span>Pratinjau Cetak Presisi: <b id="summary-text">4 Kartu • 1 Halaman A4</b></span>
+                </div>
+                <div class="text-slate-500">
+                    Klik kotak foto pada kartu untuk mengganti foto satuan
+                </div>
+            </div>
+
+            <!-- Area Render Lembar Kertas -->
+            <div id="sheets-wrapper">
+                <!-- Lembar kertas & kartu akan dirender otomatis di sini -->
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Input Tersembunyi untuk Upload Foto Satuan per Siswa -->
+    <input type="file" id="single-photo-input" accept="image/*" class="hidden" onchange="handleSinglePhotoSelected(event)">
+
+    <script>
+        // ==========================================
+        // 1. STATE & KONFIGURASI UTAMA APLIKASI
+        // ==========================================
+        let paperSize = 'A4'; // 'A4' (6 kartu/lembar) atau 'F4' (8 kartu/lembar)
+        let activeSinglePhotoNisn = null;
+
+        // Data SVG Default (Logo & TTD Contoh agar langsung terlihat rapi saat dibuka)
+        const defaultLogoLeft = "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><polygon points="50,5 90,27 90,73 50,95 10,73 10,27" fill="#065f46" stroke="#fbbf24" stroke-width="4"/><circle cx="50" cy="50" r="22" fill="#fbbf24"/><text x="50" y="56" font-family="Arial" font-size="16" font-weight="bold" fill="#065f46" text-anchor="middle">KEMENAG</text></svg>`);
+        const defaultLogoRight = "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="44" fill="#047857" stroke="#10b981" stroke-width="4"/><path d="M30 62 L50 32 L70 62 Z" fill="#ffffff"/><circle cx="50" cy="26" r="6" fill="#fbbf24"/></svg>`);
+        const defaultTtdSvg = "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 60"><path d="M15,45 C30,10 45,50 60,25 C70,10 75,45 95,30 C110,20 125,42 145,35" fill="none" stroke="#0f172a" stroke-width="2.5" stroke-linecap="round"/></svg>`);
+        const defaultStempelSvg = "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#6d28d9" stroke-width="3" opacity="0.75"/><circle cx="50" cy="50" r="34" fill="none" stroke="#6d28d9" stroke-width="1.5" opacity="0.75"/><text x="50" y="47" font-family="Arial" font-size="9" font-weight="bold" fill="#6d28d9" text-anchor="middle" opacity="0.8">MADRASAH</text><text x="50" y="59" font-family="Arial" font-size="8" font-weight="bold" fill="#6d28d9" text-anchor="middle" opacity="0.8">NUSANTARA</text></svg>`);
+
+        const config = {
+            instansi: "KEMENTERIAN AGAMA REPUBLIK INDONESIA",
+            sekolah: "MADRASAH TSANAWIYAH NEGERI 1 NUSANTARA",
+            alamat: "Jl. Pendidikan Raya No. 45, Kota Nusantara • Telp. (021) 555-0192",
+            judul: "KARTU PESERTA ASESMEN MADRASAH",
+            tapel: "TAHUN PELAJARAN 2025/2026",
+            accentColor: "#065f46",
+            tgl: "Nusantara, 12 Mei 2026",
+            jabatan: "Kepala Madrasah,",
+            kamad: "Dr. H. Ahmad Muzakki, M.Pd.I",
+            nip: "NIP. 19780415 200501 1 004",
+            catatan: "• Kartu wajib dibawa selama ujian berlangsung.\n• Peserta hadir 15 menit sebelum ujian dimulai.",
+            logoLeft: defaultLogoLeft,
+            logoRight: defaultLogoRight,
+            ttdImg: defaultTtdSvg,
+            stempelImg: defaultStempelSvg
+        };
+
+        // Penyimpanan Foto Berbasis NISN (Key: NISN string bersih -> Value: ObjectURL / DataURL)
+        const photoMap = {};
+
+        // Data Contoh Awal (4 Peserta)
+        let students = [
+            { nopes: "01-001-001-8", nisn: "0091234501", nis: "23001", nama: "MUHAMMAD RIZKY PRATAMA", ttl: "Jakarta, 14 Maret 2010", kelas: "IX-A", ruang: "Ruang 01" },
+            { nopes: "01-001-002-7", nisn: "0091234502", nis: "23002", nama: "AISYAH PUTRI RAMADHANI", ttl: "Bandung, 22 Agustus 2010", kelas: "IX-A", ruang: "Ruang 01" },
+            { nopes: "01-001-003-6", nisn: "0091234503", nis: "23003", nama: "FAJAR NUGROHO SAPUTRA", ttl: "Surabaya, 05 Januari 2010", kelas: "IX-B", ruang: "Ruang 02" },
+            { nopes: "01-001-004-5", nisn: "0091234504", nis: "23004", nama: "ZAHRA SALSABILA KHAIRUNNISA", ttl: "Yogyakarta, 19 November 2010", kelas: "IX-B", ruang: "Ruang 02" }
+        ];
+
+        // ==========================================
+        // 2. INISIALISASI SAAT HALAMAN DIMUAT
+        // ==========================================
+        const STORAGE_KEY = 'kartu_ujian_v3_saved_project';
+
+        window.onload = function() {
+            loadProjectFromLocal();
+            syncFormWithConfig();
+            syncImagePreviews();
+            updateClassFilterOptions();
+            renderAll();
+        };
+
+        // ==========================================
+        // 2B. FITUR SIMPAN & MUAT PROYEK (LOCALSTORAGE + JSON)
+        // ==========================================
+        function syncFormWithConfig() {
+            document.getElementById('cfg-instansi').value = config.instansi;
+            document.getElementById('cfg-sekolah').value = config.sekolah;
+            document.getElementById('cfg-alamat').value = config.alamat;
+            document.getElementById('cfg-judul').value = config.judul;
+            document.getElementById('cfg-tapel').value = config.tapel;
+            document.getElementById('cfg-color').value = config.accentColor;
+            document.getElementById('cfg-tgl').value = config.tgl;
+            document.getElementById('cfg-jabatan').value = config.jabatan;
+            document.getElementById('cfg-kamad').value = config.kamad;
+            document.getElementById('cfg-nip').value = config.nip;
+            document.getElementById('cfg-catatan').value = config.catatan;
+        }
+
+        function saveProjectToLocal() {
+            try {
+                const payload = {
+                    savedAt: new Date().toISOString(),
+                    paperSize: paperSize,
+                    config: config,
+                    students: students
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+                showToast("Pengaturan kop, TTD & daftar peserta berhasil disimpan!", "success");
+            } catch (err) {
+                showToast("Gagal menyimpan ke penyimpanan browser (ukuran gambar terlalu besar). Gunakan tombol Unduh Cadangan (.json).", "warning");
+                console.error(err);
+            }
+        }
+
+        function loadProjectFromLocal() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return;
+                const saved = JSON.parse(raw);
+                if (saved.config) Object.assign(config, saved.config);
+                if (Array.isArray(saved.students)) students = saved.students;
+                if (saved.paperSize) setPaperSize(saved.paperSize);
+            } catch (err) {
+                console.error("Gagal memuat data tersimpan:", err);
+            }
+        }
+
+        function exportProjectFile() {
+            try {
+                const payload = {
+                    app: "Generator Kartu Ujian V3",
+                    exportedAt: new Date().toISOString(),
+                    paperSize: paperSize,
+                    config: config,
+                    students: students
+                };
+                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Backup_Kartu_Ujian_${new Date().toISOString().slice(0, 10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showToast("File cadangan proyek (.json) berhasil diunduh!", "success");
+            } catch (err) {
+                showToast("Gagal mengekspor file cadangan.", "error");
+            }
+        }
+
+        function importProjectFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const imported = JSON.parse(e.target.result);
+                    if (imported.config) Object.assign(config, imported.config);
+                    if (Array.isArray(imported.students)) students = imported.students;
+                    if (imported.paperSize) setPaperSize(imported.paperSize);
+
+                    syncFormWithConfig();
+                    syncImagePreviews();
+                    updateClassFilterOptions();
+                    updatePhotoMatchBadge();
+                    renderAll();
+                    saveProjectToLocal();
+                    showToast("File cadangan proyek berhasil dipulihkan!", "success");
+                } catch (err) {
+                    showToast("Format file cadangan (.json) tidak valid.", "error");
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = "";
+        }
+
+        // ==========================================
+        // 3. NAVIGASI TAB, UKURAN KERTAS, CETAK & TOAST
+        // ==========================================
+        function switchTab(tabName) {
+            const tabs = ['data', 'kop', 'ttd'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`tab-btn-${t}`);
+                const panel = document.getElementById(`tab-panel-${t}`);
+                if (!btn || !panel) return;
+
+                if (t === tabName) {
+                    btn.classList.add('text-emerald-700', 'border-emerald-600', 'bg-white');
+                    btn.classList.remove('text-slate-500', 'border-transparent');
+                    panel.classList.remove('hidden');
+                } else {
+                    btn.classList.remove('text-emerald-700', 'border-emerald-600', 'bg-white');
+                    btn.classList.add('text-slate-500', 'border-transparent');
+                    panel.classList.add('hidden');
+                }
+            });
+        }
+
+        function setPaperSize(size) {
+            paperSize = size === 'F4' ? 'F4' : 'A4';
+            const btnA4 = document.getElementById('btn-paper-a4');
+            const btnF4 = document.getElementById('btn-paper-f4');
+            const label = document.getElementById('print-paper-label');
+
+            if (paperSize === 'A4') {
+                btnA4.className = "px-3 py-1.5 rounded-lg font-bold bg-white text-emerald-900 shadow-sm transition";
+                btnF4.className = "px-3 py-1.5 rounded-lg font-semibold text-emerald-100 hover:text-white transition";
+            } else {
+                btnF4.className = "px-3 py-1.5 rounded-lg font-bold bg-white text-emerald-900 shadow-sm transition";
+                btnA4.className = "px-3 py-1.5 rounded-lg font-semibold text-emerald-100 hover:text-white transition";
+            }
+
+            if (label) label.textContent = paperSize;
+            renderAll();
+        }
+
+        function printCards() {
+            const sheetsHtml = document.getElementById('sheets-wrapper').innerHTML;
+            if (!sheetsHtml || getFilteredStudents().length === 0) {
+                showToast("Tidak ada kartu untuk dicetak.", "warning");
+                return;
+            }
+
+            // Mencoba membuka jendela cetak bersih (mengatasi pembatasan sandbox/iframe pratinjau)
+            const printWindow = window.open('', '_blank', 'width=900,height=700');
+            if (printWindow) {
+                const pageDimensions = paperSize === 'F4' ? '215mm 330mm' : '210mm 297mm';
+                printWindow.document.write(`
+                    <!DOCTYPE html>
+                    <html lang="id">
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>Cetak Kartu Ujian (${paperSize})</title>
+                        <script src="https://cdn.tailwindcss.com"><\/script>
+                        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+                        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                        <style>
+                            @page { size: ${pageDimensions}; margin: 4mm; }
+                            body {
+                                font-family: 'Inter', sans-serif;
+                                background: #ffffff;
+                                margin: 0;
+                                padding: 0;
+                                -webkit-print-color-adjust: exact !important;
+                                print-color-adjust: exact !important;
+                            }
+                            .paper-sheet {
+                                background: white;
+                                margin: 0 auto;
+                                padding: 2mm 0;
+                                display: grid;
+                                grid-template-columns: repeat(2, 105mm);
+                                gap: 3mm;
+                                justify-content: center;
+                                align-content: start;
+                                page-break-after: always;
+                                break-after: page;
+                            }
+                            .paper-sheet:last-child {
+                                page-break-after: auto;
+                                break-after: auto;
+                            }
+                            .exam-card {
+                                width: 105mm;
+                                height: 75mm;
+                                background: #ffffff;
+                                border: 1.5px solid #000000;
+                                box-sizing: border-box;
+                                position: relative;
+                                overflow: hidden;
+                                display: flex;
+                                flex-direction: column;
+                                justify-content: space-between;
+                                padding: 3.5mm 4mm;
+                                page-break-inside: avoid;
+                                break-inside: avoid;
+                            }
+                            .stamp-multiply { mix-blend-mode: multiply; }
+                            .no-print { display: none !important; }
+                        </style>
+                    </head>
+                    <body>
+                        ${sheetsHtml}
+                        <script>
+                            window.onload = function() {
+                                setTimeout(function() {
+                                    window.focus();
+                                    window.print();
+                                }, 600);
+                            };
+                        <\/script>
+                    </body>
+                    </html>
+                `);
+                printWindow.document.close();
+            } else {
+                // Fallback jika pop-up diblokir browser
+                window.print();
+            }
+        }
+
+        async function downloadPDF() {
+            const filtered = getFilteredStudents();
+            if (filtered.length === 0) {
+                showToast("Tidak ada kartu untuk diunduh sebagai PDF.", "warning");
+                return;
+            }
+
+            if (typeof html2pdf === 'undefined') {
+                showToast("Modul PDF sedang dimuat, silakan coba beberapa detik lagi.", "warning");
+                return;
+            }
+
+            const btn = document.getElementById('btn-download-pdf');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Membuat PDF...</span>`;
+            showToast(`Sedang merender ${filtered.length} kartu ke file PDF (${paperSize})...`, "info");
+
+            try {
+                // Siapkan kloning bersih tanpa bayangan/margin layar agar pas 100% di kertas PDF
+                const sourceWrapper = document.getElementById('sheets-wrapper');
+                const cloneContainer = document.createElement('div');
+                cloneContainer.style.background = '#ffffff';
+                cloneContainer.style.width = paperSize === 'F4' ? '215mm' : '210mm';
+
+                const sheets = sourceWrapper.querySelectorAll('.paper-sheet');
+                sheets.forEach((sheet, idx) => {
+                    const clonedSheet = sheet.cloneNode(true);
+                    clonedSheet.style.boxShadow = 'none';
+                    clonedSheet.style.margin = '0';
+                    clonedSheet.style.padding = '5mm 0';
+                    clonedSheet.style.minHeight = 'auto';
+                    if (idx < sheets.length - 1) {
+                        clonedSheet.style.pageBreakAfter = 'always';
+                    }
+                    cloneContainer.appendChild(clonedSheet);
+                });
+
+                const pdfFormat = paperSize === 'F4' ? [215, 330] : 'a4';
+                const opt = {
+                    margin: [3, 0, 3, 0],
+                    filename: `Kartu_Ujian_${paperSize}_${new Date().toISOString().slice(0, 10)}.pdf`,
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: {
+                        scale: 2,
+                        useCORS: true,
+                        letterRendering: true,
+                        logging: false
+                    },
+                    jsPDF: {
+                        unit: 'mm',
+                        format: pdfFormat,
+                        orientation: 'portrait'
+                    },
+                    pagebreak: { mode: ['css', 'legacy'] }
+                };
+
+                await html2pdf().set(opt).from(cloneContainer).save();
+                showToast("File PDF Kartu Ujian berhasil diunduh!", "success");
+            } catch (err) {
+                console.error("PDF Export Error:", err);
+                showToast("Gagal membuat file PDF. Silakan gunakan tombol Cetak.", "error");
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+
+            const colors = {
+                success: 'bg-emerald-700 text-white border-emerald-800',
+                error: 'bg-rose-600 text-white border-rose-700',
+                warning: 'bg-amber-500 text-slate-950 border-amber-600',
+                info: 'bg-slate-800 text-white border-slate-900'
+            };
+
+            const icons = {
+                success: 'fa-circle-check',
+                error: 'fa-circle-exclamation',
+                warning: 'fa-triangle-exclamation',
+                info: 'fa-circle-info'
+            };
+
+            const toast = document.createElement('div');
+            toast.className = `px-4 py-3 rounded-xl shadow-lg border text-xs font-bold flex items-center gap-2.5 transform transition-all duration-300 translate-x-0 ${colors[type] || colors.info}`;
+            toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info} text-sm"></i><span>${escapeHtml(message)}</span>`;
+
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-x-4');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
+        // ==========================================
+        // 4. DOWNLOAD TEMPLATE & IMPORT DATA EXCEL (.XLSX)
+        // ==========================================
+        function downloadExcelTemplate() {
+            if (typeof XLSX === 'undefined') {
+                showToast("Library Excel sedang dimuat, silakan coba beberapa detik lagi.", "warning");
+                return;
+            }
+
+            const sampleRows = [
+                {
+                    "No Peserta": "01-001-001-8",
+                    "NISN": "0091234501",
+                    "NIS": "23001",
+                    "Nama Lengkap": "MUHAMMAD RIZKY PRATAMA",
+                    "Tempat Tanggal Lahir": "Jakarta, 14 Maret 2010",
+                    "Kelas": "IX-A",
+                    "Ruang": "Ruang 01"
+                },
+                {
+                    "No Peserta": "01-001-002-7",
+                    "NISN": "0091234502",
+                    "NIS": "23002",
+                    "Nama Lengkap": "AISYAH PUTRI RAMADHANI",
+                    "Tempat Tanggal Lahir": "Bandung, 22 Agustus 2010",
+                    "Kelas": "IX-A",
+                    "Ruang": "Ruang 01"
+                }
+            ];
+
+            const worksheet = XLSX.utils.json_to_sheet(sampleRows);
+            worksheet['!cols'] = [
+                { wch: 16 }, { wch: 14 }, { wch: 10 },
+                { wch: 28 }, { wch: 24 }, { wch: 10 }, { wch: 12 }
+            ];
+
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Data_Peserta");
+            XLSX.writeFile(workbook, "Template_Kartu_Ujian_V3.xlsx");
+            showToast("Template Excel berhasil diunduh!", "success");
+        }
+
+        function handleExcelUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (typeof XLSX === 'undefined') {
+                showToast("Library Excel belum siap. Periksa koneksi internet Anda.", "error");
+                return;
+            }
+
+            const statusEl = document.getElementById('excel-status');
+            statusEl.textContent = "Membaca file Excel...";
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const rows = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+                    if (!rows || rows.length === 0) {
+                        showToast("File Excel kosong atau tidak memiliki baris data.", "warning");
+                        statusEl.textContent = "File Excel kosong";
+                        return;
+                    }
+
+                    const mappedStudents = rows.map((row, idx) => {
+                        const normalized = {};
+                        Object.keys(row).forEach(k => {
+                            normalized[k.toLowerCase().replace(/[^a-z0-9]/g, '')] = String(row[k]).trim();
+                        });
+
+                        const nopes = normalized.nopeserta || normalized.nomorpeserta || normalized.nopes || `01-001-${String(idx + 1).padStart(3, '0')}`;
+                        const nisn = normalized.nisn || "";
+                        const nis = normalized.nis || normalized.nomorinduk || "-";
+                        const nama = (normalized.namalengkap || normalized.nama || normalized.namapeserta || `PESERTA ${idx + 1}`).toUpperCase();
+                        const ttl = normalized.tempattanggallahir || normalized.ttl || normalized.tanggallahir || "-";
+                        const kelas = normalized.kelas || normalized.rombel || "-";
+                        const ruang = normalized.ruang || normalized.ruangujian || "Ruang 01";
+
+                        return { nopes, nisn, nis, nama, ttl, kelas, ruang };
+                    }).filter(s => s.nama && s.nama !== "");
+
+                    students = mappedStudents;
+                    statusEl.textContent = `Berhasil memuat ${students.length} peserta dari ${file.name}`;
+                    statusEl.classList.add('text-emerald-700', 'font-semibold');
+
+                    updateClassFilterOptions();
+                    updatePhotoMatchBadge();
+                    renderAll();
+                    showToast(`${students.length} data peserta berhasil diimpor dari Excel!`, "success");
+                } catch (err) {
+                    statusEl.textContent = "Gagal membaca file Excel.";
+                    showToast("Format file Excel tidak didukung atau rusak.", "error");
+                    console.error(err);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+            event.target.value = "";
+        }
+
+        // ==========================================
+        // 6. EKSTRAK FOTO MASSAL VIA ZIP (JSZIP)
+        // ==========================================
+        async function handleZipUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const zipStatusEl = document.getElementById('zip-status');
+            zipStatusEl.textContent = "Mengekstrak arsip ZIP...";
+
+            try {
+                const zip = await JSZip.loadAsync(file);
+                let extractedCount = 0;
+                const imagePromises = [];
+
+                zip.forEach((relativePath, zipEntry) => {
+                    // Abaikan folder dan file tersembunyi macOS (__MACOSX)
+                    if (zipEntry.dir || relativePath.includes('__MACOSX') || relativePath.startsWith('.')) {
+                        return;
+                    }
+
+                    // Cek ekstensi gambar
+                    if (/\.(jpe?g|png|webp)$/i.test(zipEntry.name)) {
+                        // Ambil nama file saja tanpa folder dan tanpa ekstensi -> sebagai NISN
+                        const fileNameOnly = zipEntry.name.split('/').pop();
+                        const nisnKey = fileNameOnly.replace(/\.[^/.]+$/, "").trim();
+
+                        if (nisnKey) {
+                            const promise = zipEntry.async("blob").then(blob => {
+                                // Hapus URL lama jika ada untuk mencegah memory leak
+                                if (photoMap[nisnKey] && photoMap[nisnKey].startsWith('blob:')) {
+                                    URL.revokeObjectURL(photoMap[nisnKey]);
+                                }
+                                photoMap[nisnKey] = URL.createObjectURL(blob);
+                                extractedCount++;
+                            });
+                            imagePromises.push(promise);
+                        }
+                    }
+                });
+
+                await Promise.all(imagePromises);
+
+                zipStatusEl.textContent = `Selesai: ${extractedCount} file foto diekstrak dari ZIP`;
+                zipStatusEl.classList.add('text-blue-700', 'font-semibold');
+
+                updatePhotoMatchBadge();
+                renderAll();
+                showToast(`${extractedCount} foto berhasil diekstrak & dicocokkan dengan NISN!`, "success");
+            } catch (err) {
+                zipStatusEl.textContent = "Gagal mengekstrak file ZIP.";
+                showToast("File ZIP rusak atau tidak dapat dibaca.", "error");
+                console.error(err);
+            }
+            event.target.value = "";
+        }
+
+        function updatePhotoMatchBadge() {
+            let matched = 0;
+            students.forEach(s => {
+                if (s.nisn && photoMap[s.nisn]) matched++;
+            });
+            document.getElementById('photo-match-badge').textContent = `${matched} / ${students.length} Foto Cocok`;
+        }
+
+        // Upload Foto Satuan (Klik langsung pada kotak foto kartu)
+        function triggerSinglePhotoUpload(nisn, index) {
+            if (!nisn) {
+                showToast("Siswa ini belum memiliki NISN. Edit data untuk mengisi NISN terlebih dahulu.", "warning");
+                return;
+            }
+            activeSinglePhotoNisn = nisn;
+            document.getElementById('single-photo-input').click();
+        }
+
+        function handleSinglePhotoSelected(event) {
+            const file = event.target.files[0];
+            if (!file || !activeSinglePhotoNisn) return;
+
+            if (photoMap[activeSinglePhotoNisn] && photoMap[activeSinglePhotoNisn].startsWith('blob:')) {
+                URL.revokeObjectURL(photoMap[activeSinglePhotoNisn]);
+            }
+            photoMap[activeSinglePhotoNisn] = URL.createObjectURL(file);
+            
+            updatePhotoMatchBadge();
+            renderAll();
+            showToast(`Foto untuk NISN ${activeSinglePhotoNisn} berhasil dipasang!`, "success");
+            event.target.value = "";
+        }
+
+        // ==========================================
+        // 7. CRUD MANUAL PESERTA & FILTER
+        // ==========================================
+        function openStudentModal(editIdx = -1) {
+            const modal = document.getElementById('student-modal');
+            const title = document.getElementById('modal-title');
+            document.getElementById('edit-index').value = editIdx;
+
+            if (editIdx >= 0 && students[editIdx]) {
+                const s = students[editIdx];
+                title.textContent = "Edit Data Peserta";
+                document.getElementById('m-nopes').value = s.nopes;
+                document.getElementById('m-nisn').value = s.nisn;
+                document.getElementById('m-nis').value = s.nis;
+                document.getElementById('m-nama').value = s.nama;
+                document.getElementById('m-ttl').value = s.ttl;
+                document.getElementById('m-kelas').value = s.kelas;
+                document.getElementById('m-ruang').value = s.ruang;
+            } else {
+                title.textContent = "Tambah Peserta Manual";
+                document.getElementById('student-form').reset();
+            }
+            modal.classList.remove('hidden');
+        }
+
+        function closeStudentModal() {
+            document.getElementById('student-modal').classList.add('hidden');
+        }
+
+        function saveManualStudent(event) {
+            event.preventDefault();
+            const editIdx = parseInt(document.getElementById('edit-index').value, 10);
+            const studentObj = {
+                nopes: document.getElementById('m-nopes').value.trim(),
+                nisn: document.getElementById('m-nisn').value.trim(),
+                nis: document.getElementById('m-nis').value.trim() || "-",
+                nama: document.getElementById('m-nama').value.trim().toUpperCase(),
+                ttl: document.getElementById('m-ttl').value.trim() || "-",
+                kelas: document.getElementById('m-kelas').value.trim(),
+                ruang: document.getElementById('m-ruang').value.trim()
+            };
+
+            if (editIdx >= 0) {
+                students[editIdx] = studentObj;
+                showToast("Data peserta berhasil diperbarui!", "success");
+            } else {
+                students.push(studentObj);
+                showToast("Peserta baru berhasil ditambahkan!", "success");
+            }
+
+            closeStudentModal();
+            updateClassFilterOptions();
+            updatePhotoMatchBadge();
+            renderAll();
+        }
+
+        function deleteStudent(idx) {
+            students.splice(idx, 1);
+            updateClassFilterOptions();
+            updatePhotoMatchBadge();
+            renderAll();
+            showToast("Data peserta dihapus.", "info");
+        }
+
+        function clearAllStudents() {
+            if (students.length === 0) return;
+            students = [];
+            updateClassFilterOptions();
+            updatePhotoMatchBadge();
+            renderAll();
+            showToast("Semua daftar peserta dikosongkan.", "warning");
+        }
+
+        function updateClassFilterOptions() {
+            const select = document.getElementById('filter-kelas');
+            const currentVal = select.value;
+            const uniqueClasses = [...new Set(students.map(s => s.kelas).filter(Boolean))].sort();
+
+            select.innerHTML = `<option value="ALL">Semua Kelas (${students.length})</option>`;
+            uniqueClasses.forEach(cls => {
+                const opt = document.createElement('option');
+                opt.value = cls;
+                opt.textContent = `Kelas ${cls}`;
+                select.appendChild(opt);
+            });
+
+            if (uniqueClasses.includes(currentVal)) {
+                select.value = currentVal;
+            }
+        }
+
+        // ==========================================
+        // 8. PENGATURAN KOP, LOGO, TTD & WARNA
+        // ==========================================
+        function updateConfig() {
+            config.instansi = document.getElementById('cfg-instansi').value;
+            config.sekolah = document.getElementById('cfg-sekolah').value;
+            config.alamat = document.getElementById('cfg-alamat').value;
+            config.judul = document.getElementById('cfg-judul').value;
+            config.tapel = document.getElementById('cfg-tapel').value;
+            config.tgl = document.getElementById('cfg-tgl').value;
+            config.jabatan = document.getElementById('cfg-jabatan').value;
+            config.kamad = document.getElementById('cfg-kamad').value;
+            config.nip = document.getElementById('cfg-nip').value;
+            config.catatan = document.getElementById('cfg-catatan').value;
+            renderAll();
+        }
+
+        function setAccentColor(hex) {
+            config.accentColor = hex;
+            document.getElementById('cfg-color').value = hex;
+            renderAll();
+        }
+
+        function handleImageSetting(event, key) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                config[key] = e.target.result;
+                syncImagePreviews();
+                renderAll();
+                showToast("Gambar berhasil diperbarui!", "success");
+            };
+            reader.readAsDataURL(file);
+            event.target.value = "";
+        }
+
+        function removeImageSetting(key) {
+            config[key] = "";
+            syncImagePreviews();
+            renderAll();
+        }
+
+        function syncImagePreviews() {
+            document.getElementById('preview-logo-left').src = config.logoLeft || "https://placehold.co/80x80/f1f5f9/94a3b8?text=Kiri";
+            document.getElementById('preview-logo-right').src = config.logoRight || "https://placehold.co/80x80/f1f5f9/94a3b8?text=Kanan";
+            document.getElementById('preview-ttd').src = config.ttdImg || "https://placehold.co/120x50/f1f5f9/94a3b8?text=TTD";
+            document.getElementById('preview-stempel').src = config.stempelImg || "https://placehold.co/80x80/f1f5f9/94a3b8?text=Cap";
+        }
+
+        // ==========================================
+        // 9. RENDER DAFTAR MINI & LEMBAR KARTU PRESISI
+        // ==========================================
+        function getFilteredStudents() {
+            const keyword = document.getElementById('search-student').value.toLowerCase().trim();
+            const selectedKelas = document.getElementById('filter-kelas').value;
+
+            return students.map((s, originalIndex) => ({ ...s, originalIndex })).filter(s => {
+                const matchKelas = selectedKelas === 'ALL' || s.kelas === selectedKelas;
+                const matchQuery = !keyword || 
+                    s.nama.toLowerCase().includes(keyword) || 
+                    s.nisn.toLowerCase().includes(keyword) || 
+                    s.nopes.toLowerCase().includes(keyword);
+                return matchKelas && matchQuery;
+            });
+        }
+
+        function renderAll() {
+            const filtered = getFilteredStudents();
+            document.getElementById('total-students-count').textContent = students.length;
+
+            // 1. Render List Mini di Sidebar Kiri
+            const miniContainer = document.getElementById('student-list-mini');
+            if (filtered.length === 0) {
+                miniContainer.innerHTML = `<div class="p-4 text-center text-slate-400">Tidak ada data peserta yang cocok.</div>`;
+            } else {
+                miniContainer.innerHTML = filtered.map(s => {
+                    const hasPhoto = Boolean(s.nisn && photoMap[s.nisn]);
+                    return `
+                        <div class="px-3 py-2 flex items-center justify-between hover:bg-slate-50 transition">
+                            <div class="min-w-0 pr-2">
+                                <div class="font-bold text-slate-800 truncate">${escapeHtml(s.nama)}</div>
+                                <div class="text-[11px] text-slate-500 flex items-center gap-2">
+                                    <span>NISN: <b>${escapeHtml(s.nisn || '-')}</b></span>
+                                    <span>•</span>
+                                    <span class="text-emerald-700 font-semibold">${escapeHtml(s.kelas)} (${escapeHtml(s.ruang)})</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1 flex-shrink-0">
+                                <span class="w-2 h-2 rounded-full ${hasPhoto ? 'bg-emerald-500' : 'bg-slate-300'}" title="${hasPhoto ? 'Foto Terpasang' : 'Belum Ada Foto'}"></span>
+                                <button onclick="openStudentModal(${s.originalIndex})" class="p-1.5 text-slate-500 hover:text-blue-600 rounded" title="Edit">
+                                    <i class="fa-solid fa-pen-to-square"></i>
+                                </button>
+                                <button onclick="deleteStudent(${s.originalIndex})" class="p-1.5 text-slate-500 hover:text-rose-600 rounded" title="Hapus">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // 2. Render Lembar Kertas (A4 = 6 kartu/lembar, F4 = 8 kartu/lembar)
+            const sheetsWrapper = document.getElementById('sheets-wrapper');
+            const cardsPerSheet = paperSize === 'A4' ? 6 : 8;
+            const totalPages = Math.max(1, Math.ceil(filtered.length / cardsPerSheet));
+
+            document.getElementById('summary-text').textContent = `${filtered.length} Kartu • ${totalPages} Halaman ${paperSize} (Ukuran Kartu 10,5 x 7,5 cm)`;
+
+            if (filtered.length === 0) {
+                sheetsWrapper.innerHTML = `
+                    <div class="paper-sheet ${paperSize === 'A4' ? 'paper-a4' : 'paper-f4'} flex items-center justify-center">
+                        <div class="text-center text-slate-400 col-span-2 py-20">
+                            <i class="fa-regular fa-id-card text-5xl mb-3 block"></i>
+                            <p class="font-bold text-sm">Belum ada kartu untuk ditampilkan</p>
+                            <p class="text-xs mt-1">Upload file Excel atau tambahkan peserta secara manual di panel kiri.</p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            let pagesHtml = '';
+            for (let page = 0; page < totalPages; page++) {
+                const slice = filtered.slice(page * cardsPerSheet, (page + 1) * cardsPerSheet);
+                const cardsHtml = slice.map(student => buildCardHtml(student)).join('');
+                pagesHtml += `
+                    <div class="paper-sheet ${paperSize === 'A4' ? 'paper-a4' : 'paper-f4'}">
+                        ${cardsHtml}
+                    </div>
+                `;
+            }
+            sheetsWrapper.innerHTML = pagesHtml;
+        }
+
+        function buildCardHtml(s) {
+            const photoUrl = (s.nisn && photoMap[s.nisn]) ? photoMap[s.nisn] : null;
+            const formattedNotes = escapeHtml(config.catatan).replace(/\n/g, '<br>');
+
+            return `
+                <div class="exam-card">
+                    <!-- HEADER KOP DUAL LOGO PRESISI -->
+                    <div class="relative flex items-center justify-between border-b-2 border-slate-900 pb-1.5 min-h-[12.5mm]">
+                        <!-- Logo Kiri -->
+                        <div class="w-[11mm] h-[11mm] flex items-center justify-center flex-shrink-0">
+                            ${config.logoLeft ? `<img src="${config.logoLeft}" class="max-w-full max-h-full object-contain" alt="Logo Kiri">` : ''}
+                        </div>
+
+                        <!-- Teks Tengah Kop -->
+                        <div class="flex-1 text-center px-1 leading-tight">
+                            <div class="text-[7px] font-bold tracking-wide text-slate-700 uppercase">${escapeHtml(config.instansi)}</div>
+                            <div class="text-[9.5px] font-extrabold text-slate-950 uppercase tracking-tight mt-0.5">${escapeHtml(config.sekolah)}</div>
+                            <div class="text-[6.2px] text-slate-600 mt-0.5 line-clamp-1">${escapeHtml(config.alamat)}</div>
+                        </div>
+
+                        <!-- Logo Kanan -->
+                        <div class="w-[11mm] h-[11mm] flex items-center justify-center flex-shrink-0">
+                            ${config.logoRight ? `<img src="${config.logoRight}" class="max-w-full max-h-full object-contain" alt="Logo Kanan">` : ''}
+                        </div>
+                    </div>
+
+                    <!-- PITA JUDUL KARTU -->
+                    <div style="background-color: ${config.accentColor};" class="text-white text-center py-0.5 px-2 rounded-sm my-1">
+                        <div class="text-[8.5px] font-extrabold tracking-wider uppercase leading-tight">${escapeHtml(config.judul)}</div>
+                        <div class="text-[6.8px] font-semibold tracking-widest opacity-95 uppercase">${escapeHtml(config.tapel)}</div>
+                    </div>
+
+                    <!-- BODY: BIODATA & PASFOTO -->
+                    <div class="flex gap-2.5 items-start flex-1 pt-0.5">
+                        <!-- Kotak Pasfoto 3x4 (Klik untuk ganti satuan) -->
+                        <div onclick="triggerSinglePhotoUpload('${escapeHtml(s.nisn)}', ${s.originalIndex})" 
+                             title="Klik untuk upload/ganti foto peserta ini"
+                             class="w-[21mm] h-[27mm] border border-slate-800 bg-slate-50 flex-shrink-0 flex flex-col items-center justify-center overflow-hidden cursor-pointer relative group">
+                            ${photoUrl 
+                                ? `<img src="${photoUrl}" class="w-full h-full object-cover" alt="Foto ${escapeHtml(s.nama)}">` 
+                                : `<div class="text-center p-1 text-slate-400">
+                                     <i class="fa-solid fa-user text-lg mb-0.5 block"></i>
+                                     <span class="text-[6px] font-bold block leading-tight">PAS FOTO<br>3 x 4</span>
+                                   </div>`
+                            }
+                            <div class="absolute inset-0 bg-black/50 text-white text-[6.5px] font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition no-print text-center px-1">
+                                Ganti Foto
+                            </div>
+                        </div>
+
+                        <!-- Tabel Biodata Peserta -->
+                        <table class="w-full text-[7.8px] leading-[1.32] text-slate-900 border-collapse">
+                            <tr>
+                                <td class="w-[22mm] font-semibold text-slate-700 align-top">No. Peserta</td>
+                                <td class="w-[2.5mm] align-top">:</td>
+                                <td class="font-extrabold text-slate-950 tracking-wide align-top">${escapeHtml(s.nopes)}</td>
+                            </tr>
+                            <tr>
+                                <td class="font-semibold text-slate-700 align-top">NIS / NISN</td>
+                                <td class="align-top">:</td>
+                                <td class="font-semibold align-top">${escapeHtml(s.nis)} / ${escapeHtml(s.nisn || '-')}</td>
+                            </tr>
+                            <tr>
+                                <td class="font-semibold text-slate-700 align-top">Nama Lengkap</td>
+                                <td class="align-top">:</td>
+                                <td class="font-extrabold uppercase align-top line-clamp-2">${escapeHtml(s.nama)}</td>
+                            </tr>
+                            <tr>
+                                <td class="font-semibold text-slate-700 align-top">Tempat, Tgl Lahir</td>
+                                <td class="align-top">:</td>
+                                <td class="align-top truncate max-w-[46mm]">${escapeHtml(s.ttl)}</td>
+                            </tr>
+                            <tr>
+                                <td class="font-semibold text-slate-700 align-top">Kelas / Ruang</td>
+                                <td class="align-top">:</td>
+                                <td class="align-top">
+                                    <span class="font-bold">${escapeHtml(s.kelas)}</span> 
+                                    <span class="mx-1 text-slate-400">|</span> 
+                                    <span class="px-1.5 py-0.2 bg-slate-100 border border-slate-400 rounded font-extrabold text-[7.5px]">${escapeHtml(s.ruang)}</span>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- FOOTER: CATATAN & TTD + STEMPEL DIGITAL -->
+                    <div class="flex items-end justify-between pt-1 mt-0.5 border-t border-dashed border-slate-300 text-[6.5px]">
+                        <!-- Catatan Kiri -->
+                        <div class="text-slate-600 leading-tight max-w-[52mm] italic">
+                            ${formattedNotes}
+                        </div>
+
+                        <!-- Blok Tanda Tangan & Stempel Kanan -->
+                        <div class="relative text-left min-w-[38mm] leading-tight">
+                            <div class="text-slate-800">${escapeHtml(config.tgl)}</div>
+                            <div class="text-slate-800">${escapeHtml(config.jabatan)}</div>
+                            
+                            <!-- Area TTD & Stempel -->
+                            <div class="relative h-[8.5mm] my-0.5 flex items-center">
+                                ${config.ttdImg ? `<img src="${config.ttdImg}" class="h-[8.5mm] max-w-[28mm] object-contain relative z-10" alt="TTD">` : ''}
+                                ${config.stempelImg ? `<img src="${config.stempelImg}" class="h-[11.5mm] w-[11.5mm] object-contain absolute -left-2 -top-1.5 z-20 stamp-multiply pointer-events-none" alt="Stempel">` : ''}
+                            </div>
+
+                            <div class="font-extrabold text-slate-950 underline">${escapeHtml(config.kamad)}</div>
+                            <div class="text-slate-700 text-[6px]">${escapeHtml(config.nip)}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Helper keamanan anti-XSS
+        function escapeHtml(text) {
+            if (!text) return "";
+            return String(text)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>
